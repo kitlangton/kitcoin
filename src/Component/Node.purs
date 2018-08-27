@@ -187,6 +187,9 @@ ui =
 
   render :: State -> H.ComponentHTML Query
   render st =
+    let
+      chainLength = length st.blockchain
+    in
     HH.div [ class_ $ "node-container " <> if st.showMenu then "floating" else ""] [
       HH.div [ class_ $ "node "
         <> if st.receivedBlock then "received-block " else " "
@@ -195,12 +198,15 @@ ui =
         HE.onClick $ HE.input_ $ ShowMenu true
         ] [
       ],
-      HH.div [
-        class_ "block-height",
-        CSS.style do color (colorFromHash prevHash)
-      ] [
-        HH.strong_ [HH.text $ show $ length st.blockchain]
-      ],
+      (if chainLength > 0 then
+        HH.div [
+          class_ "block-height",
+          CSS.style do color (colorFromHash prevHash)
+        ] [
+          HH.strong_ [HH.text $ show $ chainLength]
+        ]
+        else HH.text ""
+      ),
       if st.showMenu
         then
           HH.div_ [

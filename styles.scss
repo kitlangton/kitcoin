@@ -53,6 +53,7 @@ body {
 .block-height {
   position: absolute;
   pointer-events: none;
+  animation: fadein 1s 1;
 }
 
 .blockchain {
@@ -129,6 +130,42 @@ body {
   animation: fadein 0.3s 1;
   position: absolute;
   color: white;
+}
+
+.mine-all {
+  cursor: pointer;
+  color: white;
+  margin-left: 12px;
+  font-weight: bold;
+  text-transform: uppercase;
+  &:hover {
+    color: white - 40;
+  }
+  margin-bottom: 10px;
+}
+
+.ledger-header {
+  display: flex;
+  color: white;
+  margin-left: 12px;
+  color: gold;
+  padding-top: 10px;
+  border-top: 1px solid gold;
+  margin-top: 20px;
+  font-weight: bold;
+  text-transform: uppercase;
+  align-items: baseline;
+  animation: growin 0.5s 1;
+  margin-bottom: 10px;
+
+  .ledger-subheader {
+    margin-left: 8px;
+    opacity: 0.5;
+    text-transform: uppercase;
+    // color: white;
+    font-weight: normal;
+    font-size: 12px;
+  }
 }
 
 .menu-item + .menu-item {

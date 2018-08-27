@@ -86,8 +86,8 @@ ui =
   render :: State -> ParentHTML
   render st =
     HH.div_ [
-      HH.div [ HE.onClick $ HE.input_ MineBlocks ] [
-        HH.text "MINE BLOCKS"
+      HH.div [ HE.onClick $ HE.input_ MineBlocks, class_ "mine-all"] [
+        HH.text "Mine All Nodes"
       ],
       HH.div [ class_ "nodes" ] $
         map renderNode st.nodes
@@ -100,8 +100,15 @@ ui =
     let
       ledger = getLedger blockchain
     in
-      HH.div [ class_ "blockchain" ] $
-       fromFoldable $ mapWithIndex renderLedgerEntry ledger
+      HH.div [ class_ "" ] $ [
+        HH.div [ class_ "ledger-header"] [
+          HH.text "Ledger",
+          HH.div [ class_ "ledger-subheader"] [
+            HH.text "From Main Chain"
+          ]
+        ],
+        HH.div [ class_"blockchain"] $ fromFoldable $ mapWithIndex renderLedgerEntry ledger
+      ]
 
 
   renderLedgerEntry :: String -> Int -> ParentHTML
