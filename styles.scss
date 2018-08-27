@@ -1,5 +1,9 @@
 @import "normalize";
 
+div {
+  box-sizing: border-box;
+}
+
 body {
   background-color: rgb(0, 0, 20);
   width: 600px;
@@ -9,6 +13,7 @@ body {
 
 .nodes {
   display: flex;
+  flex-wrap: wrap;
 }
 
 .node-container {
@@ -19,8 +24,9 @@ body {
 }
 
 .node {
+  cursor: pointer;
   border-radius: 3px;
-  margin: 10px;
+  margin: 12px;
   height: 50px;
   width: 50px;
   background-color: gray;
@@ -46,6 +52,48 @@ body {
 
 .block-height {
   position: absolute;
+  pointer-events: none;
+}
+
+.blockchain {
+  color: white;
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.ledger-entry {
+  transition: all 0.3s;
+  display: flex;
+  animation: growin 1s 1;
+  padding: 5px;
+  border-radius: 3px;
+  margin: 12px;
+  border: 1px solid gray;
+  width: 75;
+  overflow: hidden;
+  align-items: center;
+  transform: translateZ(0px);
+  opacity: 1;
+}
+
+.ledger-entry-address {
+  text-align: right;
+  flex: 1;
+  opacity: 0.5;
+  margin-right: 10px;
+}
+
+.ledger-entry-value {
+  flex: 1;
+  font-weight: bold;
+  color: gold;
+}
+
+@keyframes growin {
+  0% {
+    opacity: 0;
+    width: 0px;
+  }
 }
 
 @keyframes mining {
@@ -57,5 +105,57 @@ body {
 @keyframes mined {
   100% {
     transform: rotateZ(180deg);
+  }
+}
+
+.floating {
+  z-index: 3;
+}
+
+.floating .node {
+  z-index: 3;
+}
+
+.floating .block-height {
+  z-index: 3;
+}
+
+.menu {
+  font-weight: bold;
+  top: 70px;
+  left: 12px;
+  width: 200px;
+  z-index: 3;
+  animation: fadein 0.3s 1;
+  position: absolute;
+  color: white;
+}
+
+.menu-item + .menu-item {
+  margin-top: 5px;
+}
+
+.menu-item {
+  cursor: pointer;
+  &:hover {
+    color: white - 20;
+  }
+}
+
+.overlay {
+  background-color: black;
+  opacity: 0.6;
+  z-index: 1;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  animation: fadein 0.3s 1;
+}
+
+@keyframes fadein {
+  0% {
+    opacity: 0;
   }
 }

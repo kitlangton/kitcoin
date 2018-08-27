@@ -27,19 +27,31 @@ data Message = NewBlockchain Blockchain
 type Blockchain = Array Block
 
 type State = {
-  keypair :: Maybe KeyPair,
+  keypair :: KeyPair,
   candidateBlock :: Block,
   blockchain :: Blockchain,
-  startingNonce :: Int,
+  seed :: Int,
+  id :: Int,
   peers :: Array NodeId,
   isMining :: Boolean,
   receivedBlock :: Boolean,
+  showMenu :: Boolean,
+  isGreedy :: Boolean,
   minedBlock :: Boolean
 }
 
 type Address = String
 type Signature = String
 type NodeId = Int
+
+data Coinbase = Coinbase {
+  to :: Address
+}
+
+data Transactions = Transactions {
+  coinbase :: Coinbase,
+  transactions :: Array Transaction
+}
 
 data Transaction = Transaction {
   from :: Address,
@@ -55,19 +67,18 @@ data Block = Block {
   nonce :: Int,
   prevHash :: String,
   hash :: String,
-  transactions :: Array Transaction
+  transactions :: Transactions
 }
 
 instance showBlock :: Show Block where
   show (Block {nonce, hash}) = "Nonce: " <> show nonce <> " - Hash: " <> hash
 
 instance hashableBlock :: Hashable Block where
-  hash hashType (Block b) =
+  hash hashType (Block b@{transactions: Transactions { transactions }}) =
     let
-      transactionsString = foldl (<>) "" $ map (toString <<< hash hashType) b.transactions
+      transactionsString = foldl (<>) "" $ map (toString <<< hash hashType) transactions
     in
       hash hashType (show b.nonce <> b.prevHash <> transactionsString)
-
 
 isValidBlockchain :: Blockchain -> Boolean
 isValidBlockchain blockchain =
@@ -75,7 +86,7 @@ isValidBlockchain blockchain =
 
 isValidBlock :: Block -> Boolean
 isValidBlock (Block {hash}) =
-  "00" == take 2 hash
+  "000" == take 3 hash
 
 hashBlock :: Block -> String
 hashBlock = toString <<< hash SHA256 <<< toString <<< hash SHA256
@@ -88,65 +99,83 @@ mineOnce (Block b) =
   in
     Block $ b' { hash = hash }
 
-mkCandidateBlock :: State -> State
-mkCandidateBlock st@{ startingNonce, blockchain} =
-  let
-    candidate =
-      case head blockchain of
-        Just (Block { hash} ) ->
-          Block {
-            prevHash: hash,
-            hash: "",
-            nonce: startingNonce,
-            transactions: []
-          }
-        Nothing ->
-          Block {
-            prevHash: "<<Genesis Block>>",
-            hash: "",
-            nonce: startingNonce,
-            transactions: []
-          }
-  in
-    st { candidateBlock = candidate}
+mkCandidateBlock :: Int -> String -> Int -> Blockchain -> Block
+mkCandidateBlock id address seed blockchain =
+    let
+      transactions = Transactions {
+        coinbase: Coinbase { to: show id },
+        transactions: []
+        }
+      candidate =
+        case head blockchain of
+          Just (Block { hash} ) ->
+            Block {
+              prevHash: hash,
+              hash: "",
+              nonce: seed,
+              transactions: transactions
+            }
+          Nothing ->
+            Block {
+              prevHash: "<<Genesis Block>>",
+              hash: "",
+              nonce: seed,
+              transactions: transactions
+            }
+    in
+      candidate
+
+getAddress :: State -> String
+getAddress { keypair: { public } } = toString public
 
 addBlock :: State -> State
 addBlock st =
-  mkCandidateBlock $ st { blockchain = st.candidateBlock : st.blockchain }
+  let
+    st' = st { blockchain = st.candidateBlock : st.blockchain }
+    newCandidate = mkCandidateBlock st.id (getAddress st') st'.seed st'.blockchain
+  in
+    st' { candidateBlock = newCandidate }
+
+type Input = { id :: Int, peers :: Array NodeId, seed :: Int, keypair :: KeyPair }
 
 data Query a
-  = Initialize a
-  | MineBlock a
+  = MineBlock a
   | GetPeers (Array NodeId -> a)
   | GetHash (String -> a)
   | ReceiveBlockchain Blockchain a
+  | ShowMenu Boolean a
+  | MakeGreedy Boolean a
 
-ui :: H.Component HH.HTML Query (Array NodeId) Message Aff
+ui :: H.Component HH.HTML Query Input Message Aff
 ui =
-  H.lifecycleComponent
+  H.component
     { initialState
     , render
     , eval
-    , initializer: Just $ H.action Initialize
-    , finalizer: Nothing
     , receiver: const Nothing
     }
   where
 
-  initialState peers = {
-    keypair: Nothing,
+  initialState { id, seed, peers, keypair} = {
+    keypair,
+    id,
     candidateBlock: Block {
-      nonce: 0,
+      nonce: seed,
       prevHash: "",
       hash: "",
-      transactions: []
+      transactions: Transactions {
+        coinbase: Coinbase { to: show id },
+        transactions: []
+      }
     },
     blockchain: [],
-    startingNonce: 0,
-    peers: peers,
+    seed,
+    peers,
     isMining: false,
     receivedBlock: false,
-    minedBlock: false
+    minedBlock: false,
+    isGreedy: false,
+    showMenu: false
   }
 
   colorFromHash :: String -> Color
@@ -158,25 +187,47 @@ ui =
 
   render :: State -> H.ComponentHTML Query
   render st =
-    HH.div [ class_ "node-container"] [
+    HH.div [ class_ $ "node-container " <> if st.showMenu then "floating" else ""] [
       HH.div [ class_ $ "node "
         <> if st.receivedBlock then "received-block " else " "
         <> if st.minedBlock then "mined-block " else " "
         <> if st.isMining then "mining " else " ",
-        HE.onClick $ HE.input_ MineBlock
+        HE.onClick $ HE.input_ $ ShowMenu true
         ] [
-        -- HH.div_ [
-        --   HH.div_ [ HH.text $ show $ length st.blockchain],
-        --   HH.div [HE.onClick $ HE.input_ MineBlock] [ HH.text $ "Block: " ],
-        --   HH.div_ [ HH.text $ show st.candidateBlock]
-        -- ]
       ],
       HH.div [
         class_ "block-height",
         CSS.style do color (colorFromHash prevHash)
       ] [
         HH.strong_ [HH.text $ show $ length st.blockchain]
-      ]
+      ],
+      if st.showMenu
+        then
+          HH.div_ [
+            HH.div [
+              class_ "menu floating"
+            ] [
+              HH.div [
+                class_ "menu-item",
+                HE.onClick $ HE.input_ MineBlock
+              ] [
+                HH.text "Start Mining"
+              ],
+              HH.div [
+                class_ "menu-item",
+                HE.onClick $ HE.input_ $ MakeGreedy true
+              ] [
+                HH.text "Make Greedy"
+              ]
+            ],
+            HH.div [
+              class_ "overlay",
+              HE.onClick $ HE.input_ $ ShowMenu false
+            ] [
+            ]
+          ]
+        else
+          HH.text ""
     ]
     where
       prevHash = (\(Block {prevHash}) -> prevHash) st.candidateBlock
@@ -185,12 +236,6 @@ ui =
 
   eval :: Query ~> H.ComponentDSL State Query Message Aff
   eval = case _ of
-    Initialize next -> do
-      nonce <- H.liftEffect $ randomInt 0 999999999
-      keypair <- H.liftEffect generateKeyPair
-      H.modify_ (mkCandidateBlock <<< _ { keypair = Just keypair, startingNonce = nonce})
-      pure next
-
     GetPeers reply -> do
       peers <- H.gets _.peers
       pure (reply peers)
@@ -204,17 +249,32 @@ ui =
           pure (reply "")
 
     ReceiveBlockchain newBlockchain next -> do
-      blockchain <- H.gets _.blockchain
-      if length newBlockchain > length blockchain && isValidBlockchain newBlockchain
-        then do
-          _ <- receivedBlock
-          H.modify_ ( mkCandidateBlock <<< _ { blockchain = newBlockchain })
-          _ <- H.fork $ do
-            H.liftAff $ delay $ Milliseconds 500.0
-            H.raise $ NewBlockchain newBlockchain
-          pure next
-        else
-          pure next
+      isGreedy <- H.gets _.isGreedy
+      if isGreedy then pure next
+        else do
+          blockchain <- H.gets _.blockchain
+          if length newBlockchain > length blockchain && isValidBlockchain newBlockchain
+            then do
+              _ <- receivedBlock
+              st <- H.get
+              H.modify_ ( _ {
+                blockchain = newBlockchain,
+                candidateBlock = mkCandidateBlock st.id (getAddress st) st.seed newBlockchain
+                })
+              _ <- H.fork $ do
+                H.liftAff $ delay $ Milliseconds 500.0
+                H.raise $ NewBlockchain newBlockchain
+              pure next
+            else
+              pure next
+
+    ShowMenu showMenu next -> do
+      H.modify_ _ { showMenu = showMenu }
+      pure next
+
+    MakeGreedy isGreedy next -> do
+      H.modify_ _ { isGreedy = isGreedy }
+      pure next
 
     MineBlock next -> do
       H.modify_ _ { isMining = true }

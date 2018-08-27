@@ -1,22 +1,33 @@
 module Component where
 
+import Data.Map
 import Prelude
 
+import Component.Node (Block(..), Blockchain, Coinbase(..), Transactions(..), isValidBlockchain)
 import Component.Node as Node
+import Crypto.Simple (KeyPair, generateKeyPair)
+import Data.Array (catMaybes, foldr, fromFoldable, length, range)
+import Data.FunctorWithIndex (mapWithIndex)
+import Data.Int (rem)
 import Data.List (nub)
 import Data.Map as Data.Map
-import Data.Maybe (Maybe(..))
+import Data.Maybe (Maybe(..), maybe)
+import Data.String as String
 import Data.Traversable (traverse)
+import Effect (Effect)
 import Effect.Aff (Aff)
 import Effect.Class.Console (log)
+import Effect.Random (randomInt)
 import Halogen (ClassName(..))
-import Halogen (HalogenM(..))
 import Halogen as H
 import Halogen.HTML as HH
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
 
-type State = Array NodeId
+type State = {
+  nodes :: Array NodeData,
+  blockchain :: Maybe Blockchain
+}
 
 data Query a
   = Initialize a
@@ -26,6 +37,12 @@ data Query a
 type NodeId = Int
 
 data ChildSlot = NodeSlot NodeId
+
+type NodeData = {
+  id :: NodeId,
+  seed :: Int,
+  keypair :: KeyPair
+}
 
 instance showChildSlot :: Show ChildSlot where
   show (NodeSlot id) = show id
@@ -38,12 +55,30 @@ type ChildQuery = Node.Query
 type ParentHTML = H.ParentHTML Query ChildQuery ChildSlot Aff
 type ParentDSL = H.ParentDSL State Query ChildQuery ChildSlot Void Aff
 
+-- Blockchain Functions
+
+type Ledger = Map String Int
+
+getLedger :: Blockchain -> Ledger
+getLedger =
+  (foldr (unionWith (+)) empty) <<< map getLedgerBlock
+
+getLedgerBlock :: Block -> Ledger
+getLedgerBlock (Block {transactions}) =
+  getLedgerTransactions transactions
+
+getLedgerTransactions :: Transactions -> Ledger
+getLedgerTransactions (Transactions { coinbase: Coinbase { to } }) =
+  singleton to 10
+
 ui :: H.Component HH.HTML Query Unit Void Aff
 ui =
-  H.parentComponent
-    { initialState: const [0,1,2,3,4,5]
+  H.lifecycleParentComponent
+    { initialState: const { nodes: [], blockchain: Nothing }
     , render
     , eval
+    , initializer: Just $ H.action Initialize
+    , finalizer: Nothing
     , receiver: const Nothing
     }
   where
@@ -55,22 +90,68 @@ ui =
         HH.text "MINE BLOCKS"
       ],
       HH.div [ class_ "nodes" ] $
-        map (renderNode st) st
+        map renderNode st.nodes
+      ,
+      maybe (HH.text "") renderBlockchain st.blockchain
     ]
 
-  renderNode :: Array Int -> Int -> ParentHTML
-  renderNode ids id =
+  renderBlockchain :: Blockchain -> ParentHTML
+  renderBlockchain blockchain =
+    let
+      ledger = getLedger blockchain
+    in
+      HH.div [ class_ "blockchain" ] $
+       fromFoldable $ mapWithIndex renderLedgerEntry ledger
+
+
+  renderLedgerEntry :: String -> Int -> ParentHTML
+  renderLedgerEntry address value =
+    let
+      shortAddress = String.take 10 address
+    in
+      HH.div [ class_ "ledger-entry"] [
+        HH.div [ class_ "ledger-entry-address"] [
+          HH.text $ shortAddress
+        ],
+        HH.div [ class_ "ledger-entry-value"] [
+          HH.text $ show value
+        ]
+      ]
+
+  renderNode :: NodeData -> ParentHTML
+  renderNode {id, seed, keypair} =
+      let
+        peers = catMaybes
+          [ Just $ id + 8
+          , Just $ id - 8
+          , if id `rem` 8 == 1 then Nothing else Just $ id - 1
+          , if id `rem` 8 == 0 then Nothing else Just $ id + 1]
+      in
       HH.slot
       (NodeSlot id)
       (Node.ui)
-      [id + 1, id - 1]
+      {
+        id,
+        peers,
+        seed,
+        keypair
+      }
       (HE.input $ HandleNodeMessage id)
 
   class_ = HP.class_ <<< ClassName
 
+  mkNode :: Int -> Effect NodeData
+  mkNode id = do
+    seed <- randomInt 0 999999999
+    keypair <- generateKeyPair
+    pure {id, seed, keypair}
+
   eval :: Query ~> ParentDSL
   eval = case _ of
     Initialize next -> do
+      let nodes = range 1 64
+      nodes' <- H.liftEffect $ traverse mkNode nodes
+      H.modify_ _ { nodes = nodes'}
       pure next
 
     MineBlocks next -> do
@@ -79,7 +160,9 @@ ui =
 
     HandleNodeMessage id nodeMessage next -> do
       case nodeMessage of
-        (Node.NewBlockchain blockchain) -> do
+        (Node.NewBlockchain newBlockchain) -> do
+          blockchain <- H.gets _.blockchain
+          replaceChain blockchain newBlockchain
           H.liftEffect $ log $ "Node #" <> show id <> " received a blockchain"
 
           -- View Current Blockchains
@@ -90,10 +173,20 @@ ui =
           maybePeers <- H.query (NodeSlot id) (H.request Node.GetPeers)
           case maybePeers of
             Just peers -> do
-              _ <- queryPeers peers (Node.ReceiveBlockchain blockchain)
+              _ <- queryPeers peers (Node.ReceiveBlockchain newBlockchain)
               pure next
             Nothing ->
               pure next
+
+-- replaceChain :: Maybe Blockchain -> Blockchain -> _
+replaceChain Nothing newBlockchain =
+    H.modify_ _ { blockchain = Just newBlockchain }
+replaceChain (Just blockchain) newBlockchain =
+    if length newBlockchain > length blockchain && isValidBlockchain newBlockchain
+      then do
+        H.modify_ _ { blockchain = Just newBlockchain }
+      else
+        pure unit
 
 queryPeer action id =
           H.query (NodeSlot id) (H.action $ action)

@@ -16,6 +16,7 @@
     "now",
     "prelude",
     "profunctor-lenses",
-    "psci-support"
+    "psci-support",
+    "random"
   ]
 }
