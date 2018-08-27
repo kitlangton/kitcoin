@@ -1,0 +1,6 @@
+dist
+output
+node_modules
+.psc-package
+.cache
+.psc-ide-port

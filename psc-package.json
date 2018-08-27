@@ -1,0 +1,20 @@
+{
+  "name": "reminders",
+  "set": "master",
+  "source": "https://github.com/kitlangton/package-sets.git",
+  "depends": [
+    "aff",
+    "affjax",
+    "argonaut",
+    "console",
+    "datetime",
+    "formatters",
+    "generics-rep",
+    "halogen",
+    "node-buffer",
+    "now",
+    "prelude",
+    "profunctor-lenses",
+    "psci-support"
+  ]
+}
