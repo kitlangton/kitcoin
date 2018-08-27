@@ -37,6 +37,7 @@ type State = {
   receivedBlock :: Boolean,
   showMenu :: Boolean,
   isGreedy :: Boolean,
+  isHighlighted :: Boolean,
   minedBlock :: Boolean
 }
 
@@ -45,7 +46,7 @@ type Signature = String
 type NodeId = Int
 
 data Coinbase = Coinbase {
-  to :: Address
+  to :: Int
 }
 
 data Transactions = Transactions {
@@ -103,7 +104,7 @@ mkCandidateBlock :: Int -> String -> Int -> Blockchain -> Block
 mkCandidateBlock id address seed blockchain =
     let
       transactions = Transactions {
-        coinbase: Coinbase { to: show id },
+        coinbase: Coinbase { to: id },
         transactions: []
         }
       candidate =
@@ -136,7 +137,7 @@ addBlock st =
   in
     st' { candidateBlock = newCandidate }
 
-type Input = { id :: Int, peers :: Array NodeId, seed :: Int, keypair :: KeyPair }
+type Input = { id :: Int, peers :: Array NodeId, seed :: Int, keypair :: KeyPair, isHighlighted :: Boolean }
 
 data Query a
   = MineBlock a
@@ -145,6 +146,7 @@ data Query a
   | ReceiveBlockchain Blockchain a
   | ShowMenu Boolean a
   | MakeGreedy Boolean a
+  | HandleInput Input a
 
 ui :: H.Component HH.HTML Query Input Message Aff
 ui =
@@ -152,7 +154,7 @@ ui =
     { initialState
     , render
     , eval
-    , receiver: const Nothing
+    , receiver: HE.input HandleInput
     }
   where
 
@@ -164,7 +166,7 @@ ui =
       prevHash: "",
       hash: "",
       transactions: Transactions {
-        coinbase: Coinbase { to: show id },
+        coinbase: Coinbase { to: id },
         transactions: []
       }
     },
@@ -175,6 +177,7 @@ ui =
     receivedBlock: false,
     minedBlock: false,
     isGreedy: false,
+    isHighlighted: false,
     showMenu: false
   }
 
@@ -190,7 +193,9 @@ ui =
     let
       chainLength = length st.blockchain
     in
-    HH.div [ class_ $ "node-container " <> if st.showMenu then "floating" else ""] [
+    HH.div [ class_ $ "node-container "
+        <> if st.showMenu then "floating " else " "
+        <> if st.isHighlighted then "highlighted " else " "] [
       HH.div [ class_ $ "node "
         <> if st.receivedBlock then "received-block " else " "
         <> if st.minedBlock then "mined-block " else " "
@@ -233,7 +238,15 @@ ui =
             ]
           ]
         else
-          HH.text ""
+          HH.text "",
+      if st.isHighlighted then
+        HH.div [
+          class_ "overlay",
+          HE.onClick $ HE.input_ $ ShowMenu false
+        ] [
+        ]
+        else HH.text ""
+
     ]
     where
       prevHash = (\(Block {prevHash}) -> prevHash) st.candidateBlock
@@ -268,7 +281,7 @@ ui =
                 candidateBlock = mkCandidateBlock st.id (getAddress st) st.seed newBlockchain
                 })
               _ <- H.fork $ do
-                H.liftAff $ delay $ Milliseconds 500.0
+                H.liftAff $ delay $ Milliseconds 200.0
                 H.raise $ NewBlockchain newBlockchain
               pure next
             else
@@ -280,6 +293,10 @@ ui =
 
     MakeGreedy isGreedy next -> do
       H.modify_ _ { isGreedy = isGreedy }
+      pure next
+
+    HandleInput { isHighlighted } next -> do
+      H.modify_ _ { isHighlighted = isHighlighted }
       pure next
 
     MineBlock next -> do

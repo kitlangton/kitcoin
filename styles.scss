@@ -23,6 +23,20 @@ body {
   justify-content: center;
 }
 
+.highlighted {
+  .node {
+    transform: scale(1.2);
+    z-index: 3;
+    transition: all 0.3s;
+    border: 1px solid white;
+  }
+
+  .block-height {
+    color: black white;
+    z-index: 3;
+  }
+}
+
 .node {
   cursor: pointer;
   border-radius: 3px;
@@ -63,7 +77,11 @@ body {
 }
 
 .ledger-entry {
+  cursor: pointer;
   transition: all 0.3s;
+  &:hover {
+    z-index: 3;
+  }
   display: flex;
   animation: growin 1s 1;
   padding: 5px;

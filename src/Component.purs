@@ -26,13 +26,22 @@ import Halogen.HTML.Properties as HP
 
 type State = {
   nodes :: Array NodeData,
-  blockchain :: Maybe Blockchain
+  blockchain :: Maybe Blockchain,
+  highlight :: Maybe NodeId
+  -- transaction :: Maybe NewTransaction
+}
+
+type NewTransaction = {
+  from :: Int,
+  to :: Maybe Int,
+  amount :: Maybe Int
 }
 
 data Query a
   = Initialize a
   | HandleNodeMessage NodeId Node.Message a
   | MineBlocks a
+  | HighlightNode (Maybe NodeId) a
 
 type NodeId = Int
 
@@ -57,7 +66,7 @@ type ParentDSL = H.ParentDSL State Query ChildQuery ChildSlot Void Aff
 
 -- Blockchain Functions
 
-type Ledger = Map String Int
+type Ledger = Map Int Int
 
 getLedger :: Blockchain -> Ledger
 getLedger =
@@ -74,7 +83,7 @@ getLedgerTransactions (Transactions { coinbase: Coinbase { to } }) =
 ui :: H.Component HH.HTML Query Unit Void Aff
 ui =
   H.lifecycleParentComponent
-    { initialState: const { nodes: [], blockchain: Nothing }
+    { initialState: const { nodes: [], blockchain: Nothing, highlight: Nothing }
     , render
     , eval
     , initializer: Just $ H.action Initialize
@@ -90,7 +99,7 @@ ui =
         HH.text "Mine All Nodes"
       ],
       HH.div [ class_ "nodes" ] $
-        map renderNode st.nodes
+        map (renderNode st.highlight) st.nodes
       ,
       maybe (HH.text "") renderBlockchain st.blockchain
     ]
@@ -110,24 +119,21 @@ ui =
         HH.div [ class_"blockchain"] $ fromFoldable $ mapWithIndex renderLedgerEntry ledger
       ]
 
-
-  renderLedgerEntry :: String -> Int -> ParentHTML
+  renderLedgerEntry :: Int -> Int -> ParentHTML
   renderLedgerEntry address value =
-    let
-      shortAddress = String.take 10 address
-    in
-      HH.div [ class_ "ledger-entry"] [
-        HH.div [ class_ "ledger-entry-address"] [
-          HH.text $ shortAddress
-        ],
-        HH.div [ class_ "ledger-entry-value"] [
-          HH.text $ show value
-        ]
+    HH.div [ class_ "ledger-entry", HE.onMouseOver $ HE.input_ $ HighlightNode $ Just address, HE.onMouseLeave $ HE.input_ $ HighlightNode Nothing] [
+      HH.div [ class_ "ledger-entry-address"] [
+        HH.text $ show address
+      ],
+      HH.div [ class_ "ledger-entry-value"] [
+        HH.text $ show value
       ]
+    ]
 
-  renderNode :: NodeData -> ParentHTML
-  renderNode {id, seed, keypair} =
+  renderNode :: Maybe NodeId -> NodeData -> ParentHTML
+  renderNode highlightId {id, seed, keypair} =
       let
+        isHighlighted = highlightId == Just id
         peers = catMaybes
           [ Just $ id + 8
           , Just $ id - 8
@@ -141,7 +147,8 @@ ui =
         id,
         peers,
         seed,
-        keypair
+        keypair,
+        isHighlighted
       }
       (HE.input $ HandleNodeMessage id)
 
@@ -160,9 +167,14 @@ ui =
       nodes' <- H.liftEffect $ traverse mkNode nodes
       H.modify_ _ { nodes = nodes'}
       pure next
+      -- eval $ MineBlocks next
 
     MineBlocks next -> do
       _ <- H.queryAll (H.action Node.MineBlock)
+      pure next
+
+    HighlightNode maybeNode next -> do
+      H.modify_ _ { highlight = maybeNode}
       pure next
 
     HandleNodeMessage id nodeMessage next -> do
@@ -170,12 +182,6 @@ ui =
         (Node.NewBlockchain newBlockchain) -> do
           blockchain <- H.gets _.blockchain
           replaceChain blockchain newBlockchain
-          H.liftEffect $ log $ "Node #" <> show id <> " received a blockchain"
-
-          -- View Current Blockchains
-          hashMap <- H.queryAll (H.request Node.GetHash)
-          let values = nub $ Data.Map.values hashMap
-          H.liftEffect $ log $ show values
 
           maybePeers <- H.query (NodeSlot id) (H.request Node.GetPeers)
           case maybePeers of
