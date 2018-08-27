@@ -54,7 +54,7 @@ ui =
       HH.div [ HE.onClick $ HE.input_ MineBlocks ] [
         HH.text "MINE BLOCKS"
       ],
-      HH.div_ $
+      HH.div [ class_ "nodes" ] $
         map (renderNode st) st
     ]
 
