@@ -19,12 +19,11 @@ import Halogen (ClassName(..))
 import Halogen as H
 import Halogen.HTML as HH
 import Halogen.HTML.CSS as CSS
+import Data.Blockchain
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
 
 data Message = NewBlockchain Blockchain
-
-type Blockchain = Array Block
 
 type State = {
   keypair :: KeyPair,
@@ -40,90 +39,6 @@ type State = {
   minedBlock :: Boolean
 }
 
-type Address = String
-type Signature = String
-type NodeId = Int
-
-data Coinbase = Coinbase {
-  to :: Address
-}
-
-data Transactions = Transactions {
-  coinbase :: Coinbase,
-  transactions :: Array Transaction
-}
-
-data Transaction = Transaction {
-  from :: Address,
-  to :: Address,
-  signature :: Signature
-}
-
-instance hashableTransction :: Hashable Transaction where
-  hash hashType (Transaction t) =
-      hash hashType (t.from <> t.to <> t.signature)
-
-data Block = Block {
-  nonce :: Int,
-  prevHash :: String,
-  hash :: String,
-  transactions :: Transactions
-}
-
-instance showBlock :: Show Block where
-  show (Block {nonce, hash}) = "Nonce: " <> show nonce <> " - Hash: " <> hash
-
-instance hashableBlock :: Hashable Block where
-  hash hashType (Block b@{transactions: Transactions { transactions }}) =
-    let
-      transactionsString = foldl (<>) "" $ map (toString <<< hash hashType) transactions
-    in
-      hash hashType (show b.nonce <> b.prevHash <> transactionsString)
-
-isValidBlockchain :: Blockchain -> Boolean
-isValidBlockchain blockchain =
-  all isValidBlock blockchain
-
-isValidBlock :: Block -> Boolean
-isValidBlock (Block {hash}) =
-  "000" == take 3 hash
-
-hashBlock :: Block -> String
-hashBlock = toString <<< hash SHA256 <<< toString <<< hash SHA256
-
-mineOnce :: Block -> Block
-mineOnce (Block b) =
-  let
-    Block b' = Block $ b { nonce = b.nonce + 1}
-    hash = hashBlock (Block b')
-  in
-    Block $ b' { hash = hash }
-
-mkCandidateBlock :: Int -> String -> Int -> Blockchain -> Block
-mkCandidateBlock id address seed blockchain =
-    let
-      transactions = Transactions {
-        coinbase: Coinbase { to: show id },
-        transactions: []
-        }
-      candidate =
-        case head blockchain of
-          Just (Block { hash} ) ->
-            Block {
-              prevHash: hash,
-              hash: "",
-              nonce: seed,
-              transactions: transactions
-            }
-          Nothing ->
-            Block {
-              prevHash: "<<Genesis Block>>",
-              hash: "",
-              nonce: seed,
-              transactions: transactions
-            }
-    in
-      candidate
 
 getAddress :: State -> String
 getAddress { keypair: { public } } = toString public
@@ -135,6 +50,9 @@ addBlock st =
     newCandidate = mkCandidateBlock st.id (getAddress st') st'.seed st'.blockchain
   in
     st' { candidateBlock = newCandidate }
+
+type NodeId = Int
+
 
 type Input = { id :: Int, peers :: Array NodeId, seed :: Int, keypair :: KeyPair }
 

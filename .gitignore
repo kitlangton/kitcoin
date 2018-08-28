@@ -3,4 +3,6 @@ output
 node_modules
 .psc-package
 .cache
-.psc-ide-port
+# .psc-ide-port
+.pulp-cache
+.psci_modules

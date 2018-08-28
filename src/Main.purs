@@ -4,7 +4,8 @@ import Prelude
 import Effect (Effect)
 import Halogen.Aff as HA
 import Halogen.VDom.Driver (runUI)
-import Component (ui)
+-- import Component (ui)
+import Component.Script (ui)
 
 -- | Run the app.
 main :: Effect Unit
