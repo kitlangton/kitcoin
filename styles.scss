@@ -6,8 +6,6 @@ div {
 
 body {
   background-color: rgb(0, 0, 20);
-  width: 600px;
-  margin: 0 auto;
   margin-top: 40px;
 }
 
@@ -80,8 +78,9 @@ body {
   cursor: pointer;
   transition: all 0.3s;
   &:hover {
-    z-index: 3;
+    border-color: white;
   }
+  z-index: 1;
   display: flex;
   animation: growin 1s 1;
   padding: 5px;
@@ -163,16 +162,19 @@ body {
 }
 
 .ledger-header {
+  position: relative;
+  z-index: 2;
   display: flex;
   color: white;
   margin-left: 12px;
+  margin-right: 12px;
   color: gold;
   padding-top: 10px;
   border-top: 1px solid gold;
   margin-top: 20px;
   font-weight: bold;
   text-transform: uppercase;
-  align-items: baseline;
+  align-items: center;
   animation: growin 0.5s 1;
   margin-bottom: 10px;
 
@@ -199,8 +201,20 @@ body {
 
 .overlay {
   background-color: black;
-  opacity: 0.6;
+  opacity: 0.8;
   z-index: 1;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  animation: fadein 0.3s 1;
+}
+
+.ledger-overlay {
+  background-color: black;
+  opacity: 0.8;
+  z-index: 2;
   position: fixed;
   top: 0;
   left: 0;
@@ -213,4 +227,127 @@ body {
   0% {
     opacity: 0;
   }
+}
+
+@keyframes slidedown {
+  0% {
+    height: 0px;
+    margin-bottom: 0;
+    margin-top: 0;
+    opacity: 0;
+  }
+}
+
+.transaction-container {
+  animation: slidedown 0.7s 1;
+  height: 100px;
+  position: relative;
+  z-index: 2;
+  overflow: hidden;
+
+  .ledger-subheader {
+    cursor: pointer;
+    font-weight: bold;
+  }
+}
+
+.transaction-form {
+  margin: 0 12px;
+  display: flex;
+  color: gray;
+
+  > div {
+    position: relative;
+    padding: 5px 8px;
+    border-radius: 3px;
+    border: 1px solid gold;
+    &:after {
+      position: absolute;
+      right: -23px;
+      font-weight: bold;
+      color: gold;
+      content: "→";
+    }
+    margin-right: 30px;
+  }
+
+  .transaction-amount {
+    border: 1px solid gold;
+    font-weight: bold;
+    color: gold;
+  }
+
+  .transaction-from {
+    border-color: gray;
+    &:after {
+      content: "–";
+      right: -20px;
+    }
+  }
+
+  .transaction-to {
+    border-color: gray;
+    &:after {
+      content: none;
+    }
+  }
+
+  .transaction-submit {
+    animation: growin 0.5s 1;
+    right: -15px;
+    position: absolute;
+    background-color: gold;
+    cursor: pointer;
+    color: black;
+    text-transform: uppercase;
+    font-weight: bold;
+    &:after {
+      content: none;
+    }
+  }
+}
+
+// Stats
+
+.container {
+  display: flex;
+  justify-content: center;
+  position: relative;
+}
+
+.stats {
+  margin-top: 30px;
+  flex-direction: column;
+  display: flex;
+  color: gray;
+  padding: 10px;
+  text-align: right;
+  border-radius: 3px;
+  width: 200px;
+}
+
+.stat {
+  animation: slidedown 0.5s 1;
+  border-right: 1px solid gray;
+  padding-right: 10px;
+
+  & + .stat {
+    margin-top: 10px;
+  }
+}
+
+.stat-term {
+  margin-bottom: 5px;
+  text-transform: uppercase;
+  font-size: 12px;
+}
+
+.stat-definition {
+  color: #eee;
+  text-transform: uppercase;
+}
+
+.main {
+  width: 600px;
+  margin-right: 200px;
 }

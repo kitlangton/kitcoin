@@ -1,20 +1,20 @@
 module Component.Node where
 
-import Crypto.Simple
+import Data.Blockchain
 import Prelude
 
-import CSS (Color, color, rgb, hsl)
-import Color.Scheme.Clrs (red)
-import Data.Array (all, head, length, (!!), (:))
+import CSS (Color, color, hsl)
+import Crypto.Simple (KeyPair, toString)
+import Data.Array (head, length, (:))
 import Data.Enum (fromEnum)
-import Data.Foldable (foldl, sum)
+import Data.Foldable (sum)
 import Data.Int (toNumber)
-import Data.Maybe (Maybe(..), maybe, fromMaybe)
-import Data.Monoid ((<>))
-import Data.String (take, toCodePointArray)
-import Effect.Aff (Aff, Milliseconds(..), delay, forkAff)
-import Effect.Class.Console (log)
-import Effect.Random (randomInt)
+import Data.Maybe (Maybe(..))
+import Data.String (toCodePointArray)
+import Data.Time (Time(..))
+import Effect (Effect)
+import Effect.Aff (Aff, Milliseconds(..), delay)
+import Effect.Now (nowTime)
 import Halogen (ClassName(..))
 import Halogen as H
 import Halogen.HTML as HH
@@ -22,9 +22,7 @@ import Halogen.HTML.CSS as CSS
 import Halogen.HTML.Events as HE
 import Halogen.HTML.Properties as HP
 
-data Message = NewBlockchain Blockchain
-
-type Blockchain = Array Block
+data Message = NewBlockchain Blockchain | NodeClicked
 
 type State = {
   keypair :: KeyPair,
@@ -41,112 +39,29 @@ type State = {
   minedBlock :: Boolean
 }
 
-type Address = String
-type Signature = String
-type NodeId = Int
-
-data Coinbase = Coinbase {
-  to :: Int
-}
-
-data Transactions = Transactions {
-  coinbase :: Coinbase,
-  transactions :: Array Transaction
-}
-
-data Transaction = Transaction {
-  from :: Address,
-  to :: Address,
-  signature :: Signature
-}
-
-instance hashableTransction :: Hashable Transaction where
-  hash hashType (Transaction t) =
-      hash hashType (t.from <> t.to <> t.signature)
-
-data Block = Block {
-  nonce :: Int,
-  prevHash :: String,
-  hash :: String,
-  transactions :: Transactions
-}
-
-instance showBlock :: Show Block where
-  show (Block {nonce, hash}) = "Nonce: " <> show nonce <> " - Hash: " <> hash
-
-instance hashableBlock :: Hashable Block where
-  hash hashType (Block b@{transactions: Transactions { transactions }}) =
-    let
-      transactionsString = foldl (<>) "" $ map (toString <<< hash hashType) transactions
-    in
-      hash hashType (show b.nonce <> b.prevHash <> transactionsString)
-
-isValidBlockchain :: Blockchain -> Boolean
-isValidBlockchain blockchain =
-  all isValidBlock blockchain
-
-isValidBlock :: Block -> Boolean
-isValidBlock (Block {hash}) =
-  "000" == take 3 hash
-
-hashBlock :: Block -> String
-hashBlock = toString <<< hash SHA256 <<< toString <<< hash SHA256
-
-mineOnce :: Block -> Block
-mineOnce (Block b) =
-  let
-    Block b' = Block $ b { nonce = b.nonce + 1}
-    hash = hashBlock (Block b')
-  in
-    Block $ b' { hash = hash }
-
-mkCandidateBlock :: Int -> String -> Int -> Blockchain -> Block
-mkCandidateBlock id address seed blockchain =
-    let
-      transactions = Transactions {
-        coinbase: Coinbase { to: id },
-        transactions: []
-        }
-      candidate =
-        case head blockchain of
-          Just (Block { hash} ) ->
-            Block {
-              prevHash: hash,
-              hash: "",
-              nonce: seed,
-              transactions: transactions
-            }
-          Nothing ->
-            Block {
-              prevHash: "<<Genesis Block>>",
-              hash: "",
-              nonce: seed,
-              transactions: transactions
-            }
-    in
-      candidate
-
 getAddress :: State -> String
 getAddress { keypair: { public } } = toString public
 
-addBlock :: State -> State
-addBlock st =
+addBlock :: State -> Effect State
+addBlock st = do
+  timestamp <- nowTime
   let
     st' = st { blockchain = st.candidateBlock : st.blockchain }
-    newCandidate = mkCandidateBlock st.id (getAddress st') st'.seed st'.blockchain
-  in
-    st' { candidateBlock = newCandidate }
+    newCandidate = mkCandidateBlock timestamp st.id (getAddress st') st'.seed st'.blockchain
+  pure (st' { candidateBlock = newCandidate })
 
-type Input = { id :: Int, peers :: Array NodeId, seed :: Int, keypair :: KeyPair, isHighlighted :: Boolean }
+type Input = { id :: Int, peers :: Array NodeId, seed :: Int, keypair :: KeyPair, isHighlighted :: Boolean, timestamp :: Time }
 
 data Query a
-  = MineBlock a
+  = ToggleMining a
+  | MineBlock a
   | GetPeers (Array NodeId -> a)
   | GetHash (String -> a)
   | ReceiveBlockchain Blockchain a
   | ShowMenu Boolean a
   | MakeGreedy Boolean a
   | HandleInput Input a
+  | HandleClick a
 
 ui :: H.Component HH.HTML Query Input Message Aff
 ui =
@@ -158,17 +73,18 @@ ui =
     }
   where
 
-  initialState { id, seed, peers, keypair} = {
+  initialState { id, seed, peers, keypair, timestamp} = {
     keypair,
     id,
     candidateBlock: Block {
       nonce: seed,
       prevHash: "",
       hash: "",
-      transactions: Transactions {
-        coinbase: Coinbase { to: id },
+      blockTransactions: BlockTransactions {
+        coinbase: Coinbase { coinbaseAddress: id },
         transactions: []
-      }
+      },
+      timestamp
     },
     blockchain: [],
     seed,
@@ -200,7 +116,7 @@ ui =
         <> if st.receivedBlock then "received-block " else " "
         <> if st.minedBlock then "mined-block " else " "
         <> if st.isMining then "mining " else " ",
-        HE.onClick $ HE.input_ $ ShowMenu true
+        HE.onClick $ HE.input_ $ HandleClick
         ] [
       ],
       (if chainLength > 0 then
@@ -219,17 +135,27 @@ ui =
               class_ "menu floating"
             ] [
               HH.div [
-                class_ "menu-item",
-                HE.onClick $ HE.input_ MineBlock
+                class_ "menu-item"
               ] [
-                HH.text "Start Mining"
+                HH.text $ (\(Block {nonce}) -> show nonce) st.candidateBlock
               ],
               HH.div [
-                class_ "menu-item",
-                HE.onClick $ HE.input_ $ MakeGreedy true
+                class_ "menu-item"
               ] [
-                HH.text "Make Greedy"
+                HH.text $ (\(Block {hash}) -> hash) st.candidateBlock
               ]
+              -- HH.div [
+              --   class_ "menu-item",
+              --   HE.onClick $ HE.input_ MineBlock
+              -- ] [
+              --   HH.text "Start Mining"
+              -- ],
+              -- HH.div [
+              --   class_ "menu-item",
+              --   HE.onClick $ HE.input_ $ MakeGreedy true
+              -- ] [
+              --   HH.text "Make Greedy"
+              -- ]
             ],
             HH.div [
               class_ "overlay",
@@ -276,9 +202,10 @@ ui =
             then do
               _ <- receivedBlock
               st <- H.get
+              timestamp <- H.liftEffect nowTime
               H.modify_ ( _ {
                 blockchain = newBlockchain,
-                candidateBlock = mkCandidateBlock st.id (getAddress st) st.seed newBlockchain
+                candidateBlock = mkCandidateBlock timestamp st.id (getAddress st) st.seed newBlockchain
                 })
               _ <- H.fork $ do
                 H.liftAff $ delay $ Milliseconds 200.0
@@ -299,19 +226,43 @@ ui =
       H.modify_ _ { isHighlighted = isHighlighted }
       pure next
 
-    MineBlock next -> do
-      H.modify_ _ { isMining = true }
-      block <- H.gets (mineOnce <<<_.candidateBlock)
-      H.modify_ _ { candidateBlock = block}
-
-      if isValidBlock block
+    ToggleMining next -> do
+      isMining <- H.gets _.isMining
+      st <- H.get
+      timestamp <- H.liftEffect nowTime
+      H.modify_ _ { isMining = not isMining }
+      if not isMining
         then do
-          minedBlock block
+          H.modify_ ( _ {
+            candidateBlock = mkCandidateBlock timestamp st.id (getAddress st) st.seed st.blockchain
+            })
+          eval $ MineBlock next
+        else
           pure next
-        else do
-          _ <- H.fork $ do
-            H.liftAff $ delay $ Milliseconds 20.0
-            eval $ MineBlock next
+
+    HandleClick next -> do
+      H.raise NodeClicked
+      pure next
+
+    MineBlock next -> do
+      shouldMine <- H.gets _.isMining
+      if shouldMine then do
+        block <- H.gets (mineOnce <<<_.candidateBlock)
+        H.modify_ _ { candidateBlock = block}
+
+        if isValidBlock block
+          then do
+            minedBlock block
+            _ <- H.fork $ do
+              H.liftAff $ delay $ Milliseconds 30.0
+              eval $ MineBlock next
+            pure next
+          else do
+            _ <- H.fork $ do
+              H.liftAff $ delay $ Milliseconds 30.0
+              eval $ MineBlock next
+            pure next
+        else
           pure next
 
 receivedBlock = do
@@ -321,9 +272,11 @@ receivedBlock = do
     H.modify_ _ { receivedBlock = false }
 
 minedBlock block = do
-  H.modify_ addBlock
+  st <- H.get
+  st' <- H.liftEffect $ addBlock st
+  H.put st'
   blockchain <- H.gets _.blockchain
-  H.modify_ _ { isMining = false, minedBlock = true }
+  H.modify_ _ { minedBlock = true }
   _ <- H.fork $ do
     H.liftAff $ delay $ Milliseconds 1000.0
     H.modify_ _ { minedBlock = false }
