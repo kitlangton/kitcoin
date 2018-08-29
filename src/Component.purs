@@ -1,20 +1,20 @@
 module Component where
 
-import Data.Map
+import Data.Blockchain
 import Prelude
 import Component.Node as Node
 import Crypto.Simple (KeyPair, generateKeyPair)
 import Data.Array (catMaybes, foldr, fromFoldable, length, range)
 import Data.FunctorWithIndex (mapWithIndex)
 import Data.Int (rem)
-import Data.List (nub)
-import Data.Map as Data.Map
-import Data.Maybe (Maybe(..), maybe)
-import Data.String as String
+import Data.Map (Map, empty, singleton, unionWith)
+import Data.Maybe (Maybe(..), fromMaybe, isJust, maybe)
+import Data.String.CodeUnits as S
+import Data.Time (Time(..))
 import Data.Traversable (traverse)
 import Effect (Effect)
 import Effect.Aff (Aff)
-import Effect.Class.Console (log)
+import Effect.Now (nowTime)
 import Effect.Random (randomInt)
 import Halogen (ClassName(..))
 import Halogen as H
@@ -24,13 +24,26 @@ import Halogen.HTML.Properties as HP
 
 type State = {
   nodes :: Array NodeData,
-  blockchain :: Maybe Blockchain
+  blockchain :: Maybe Blockchain,
+  highlight :: Maybe NodeId,
+  transaction :: Maybe NewTransaction,
+  startingTime :: Maybe Time
+}
+
+type NewTransaction = {
+  from :: Int,
+  amount :: Int,
+  to :: Maybe Int
 }
 
 data Query a
   = Initialize a
   | HandleNodeMessage NodeId Node.Message a
   | MineBlocks a
+  | HighlightNode (Maybe NodeId) a
+  | CreateNewTransaction Int Int a
+  | SelectOutputAddress Int a
+  | CancelTransaction a
 
 type NodeId = Int
 
@@ -55,24 +68,11 @@ type ParentDSL = H.ParentDSL State Query ChildQuery ChildSlot Void Aff
 
 -- Blockchain Functions
 
-type Ledger = Map String Int
-
-getLedger :: Blockchain -> Ledger
-getLedger =
-  (foldr (unionWith (+)) empty) <<< map getLedgerBlock
-
-getLedgerBlock :: Block -> Ledger
-getLedgerBlock (Block {transactions}) =
-  getLedgerTransactions transactions
-
-getLedgerTransactions :: Transactions -> Ledger
-getLedgerTransactions (Transactions { coinbase: Coinbase { to } }) =
-  singleton to 10
 
 ui :: H.Component HH.HTML Query Unit Void Aff
 ui =
   H.lifecycleParentComponent
-    { initialState: const { nodes: [], blockchain: Nothing }
+    { initialState: const { nodes: [], blockchain: Nothing, highlight: Nothing, transaction: Nothing, startingTime: Nothing }
     , render
     , eval
     , initializer: Just $ H.action Initialize
@@ -83,14 +83,79 @@ ui =
 
   render :: State -> ParentHTML
   render st =
-    HH.div_ [
-      HH.div [ HE.onClick $ HE.input_ MineBlocks, class_ "mine-all"] [
-        HH.text "Mine All Nodes"
-      ],
-      HH.div [ class_ "nodes" ] $
-        map renderNode st.nodes
+    HH.div [ class_ "container"] [
+      HH.div [ class_ "stats"]
+        case st.blockchain of
+          Just blockchain ->
+            [
+              HH.div [ class_ "stat" ] [
+                HH.div [ class_ "stat-term"] [
+                  HH.text "Average Mining Time"
+                ],
+                HH.div [ class_ "stat-definition"] [
+                  HH.text $ S.take 5 (show $ averageMine blockchain) <> " Seconds"
+                ]
+              ],
+              -- HH.div [ class_ "stat" ] [
+              --   HH.div [ class_ "stat-term"] [
+              --     HH.text "Average Mining Time"
+              --   ],
+              --   HH.div [ class_ "stat-definition"] [
+              --     HH.text $ (show $ blockMineTimeDiffs blockchain)
+              --   ]
+              -- ],
+              HH.div [ class_ "stat" ] [
+                HH.div [ class_ "stat-term"] [
+                  HH.text "Block Height"
+                ],
+                HH.div [ class_ "stat-definition"] [
+                  HH.text $ show (length blockchain) <> " Blocks"
+                ]
+              ]
+            ]
+          Nothing ->
+            [HH.text ""]
       ,
-      maybe (HH.text "") renderBlockchain st.blockchain
+      HH.div [ class_ "main"] [
+        HH.div [ HE.onClick $ HE.input_ MineBlocks, class_ "mine-all"] [
+          HH.text "Mine All Nodes"
+        ],
+        HH.div [ class_ "nodes" ] $
+          case st.startingTime of
+            Just timestamp ->
+              map (renderNode timestamp st.highlight) st.nodes
+            Nothing -> []
+        , maybe (HH.text "") renderTransactionForm st.transaction
+        , maybe (HH.text "") renderBlockchain st.blockchain
+      ]
+    ]
+
+  renderTransactionForm :: NewTransaction -> ParentHTML
+  renderTransactionForm {from, amount, to} =
+    HH.div [ class_ "transaction-container"] [
+      HH.div [ class_ "ledger-header"] [
+        HH.text "New Transaction",
+          HH.div [ class_ "ledger-subheader", HE.onClick $ HE.input_ CancelTransaction] [
+            HH.text "Cancel"
+          ]
+      ],
+      HH.div [ class_ "transaction-form"] [
+        HH.div [ class_ "transaction-from"] [
+          HH.text $ show from
+        ],
+        HH.div [ class_ "transaction-amount"] [
+          HH.text $ show amount
+        ],
+        HH.div [ class_ "transaction-to"] [
+          HH.text $ maybe "Click on a Node above" show to
+        ],
+        if isJust to
+          then
+            HH.div [ class_ "transaction-submit"] [
+              HH.text "Submit to random nodes"
+            ]
+          else HH.text ""
+      ]
     ]
 
   renderBlockchain :: Blockchain -> ParentHTML
@@ -108,40 +173,43 @@ ui =
         HH.div [ class_"blockchain"] $ fromFoldable $ mapWithIndex renderLedgerEntry ledger
       ]
 
-
-  renderLedgerEntry :: String -> Int -> ParentHTML
+  renderLedgerEntry :: Int -> Int -> ParentHTML
   renderLedgerEntry address value =
-    let
-      shortAddress = String.take 10 address
-    in
-      HH.div [ class_ "ledger-entry"] [
-        HH.div [ class_ "ledger-entry-address"] [
-          HH.text $ shortAddress
-        ],
-        HH.div [ class_ "ledger-entry-value"] [
-          HH.text $ show value
-        ]
+    HH.div [ class_ "ledger-entry",
+              HE.onMouseOver $ HE.input_ $ HighlightNode $ Just address,
+              HE.onMouseLeave $ HE.input_ $ HighlightNode Nothing,
+              HE.onClick $ HE.input_ $ CreateNewTransaction address value
+              ] [
+      HH.div [ class_ "ledger-entry-address"] [
+        HH.text $ show address
+      ],
+      HH.div [ class_ "ledger-entry-value"] [
+        HH.text $ show value
       ]
+    ]
 
-  renderNode :: NodeData -> ParentHTML
-  renderNode {id, seed, keypair} =
+  renderNode :: Time -> Maybe NodeId -> NodeData -> ParentHTML
+  renderNode timestamp highlightId {id, seed, keypair} =
       let
+        isHighlighted = highlightId == Just id
         peers = catMaybes
           [ Just $ id + 8
           , Just $ id - 8
           , if id `rem` 8 == 1 then Nothing else Just $ id - 1
           , if id `rem` 8 == 0 then Nothing else Just $ id + 1]
       in
-      HH.slot
-      (NodeSlot id)
-      (Node.ui)
-      {
-        id,
-        peers,
-        seed,
-        keypair
-      }
-      (HE.input $ HandleNodeMessage id)
+        HH.slot
+        (NodeSlot id)
+        (Node.ui)
+        {
+          id,
+          peers,
+          seed,
+          keypair,
+          isHighlighted,
+          timestamp
+        }
+        (HE.input $ HandleNodeMessage id)
 
   class_ = HP.class_ <<< ClassName
 
@@ -155,25 +223,51 @@ ui =
   eval = case _ of
     Initialize next -> do
       let nodes = range 1 64
+      startingTime <- H.liftEffect nowTime
       nodes' <- H.liftEffect $ traverse mkNode nodes
-      H.modify_ _ { nodes = nodes'}
+      H.modify_ _ { nodes = nodes', startingTime = Just startingTime }
       pure next
+      -- eval $ MineBlocks next
 
     MineBlocks next -> do
-      _ <- H.queryAll (H.action Node.MineBlock)
+      _ <- H.queryAll (H.action Node.ToggleMining)
+      pure next
+
+    HighlightNode maybeNode next -> do
+      H.modify_ _ { highlight = maybeNode}
+      pure next
+
+    CreateNewTransaction from amount next -> do
+      let newTransaciton = { from, amount, to: Nothing }
+      H.modify_ _ { transaction = Just newTransaciton }
+      pure next
+
+    SelectOutputAddress to next -> do
+      transaction' <- H.gets _.transaction
+      case transaction' of
+        Just transaction -> do
+          H.modify_ _ { transaction = Just transaction { to = Just to} }
+          pure next
+        Nothing ->
+          pure next
+
+    CancelTransaction next -> do
+      H.modify_ _ { transaction = Nothing }
       pure next
 
     HandleNodeMessage id nodeMessage next -> do
       case nodeMessage of
+        Node.NodeClicked -> do
+          transaction <- H.gets _.transaction
+          if isJust transaction then
+              eval $ SelectOutputAddress id next
+            else do
+              _ <- H.query (NodeSlot id) (H.action $ Node.ShowMenu true)
+              pure next
+
         (Node.NewBlockchain newBlockchain) -> do
           blockchain <- H.gets _.blockchain
           replaceChain blockchain newBlockchain
-          H.liftEffect $ log $ "Node #" <> show id <> " received a blockchain"
-
-          -- View Current Blockchains
-          hashMap <- H.queryAll (H.request Node.GetHash)
-          let values = nub $ Data.Map.values hashMap
-          H.liftEffect $ log $ show values
 
           maybePeers <- H.query (NodeSlot id) (H.request Node.GetPeers)
           case maybePeers of
