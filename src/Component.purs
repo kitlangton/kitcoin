@@ -2,9 +2,6 @@ module Component where
 
 import Data.Map
 import Prelude
-
-import Data.Blockchain
-import Component.Node
 import Component.Node as Node
 import Crypto.Simple (KeyPair, generateKeyPair)
 import Data.Array (catMaybes, foldr, fromFoldable, length, range)
